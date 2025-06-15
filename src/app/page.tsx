@@ -1,103 +1,168 @@
-import Image from "next/image";
+"use client";
+
+import { useState } from "react";
+import { Card } from "../components/ui/card";
+import { Input } from "../components/ui/input";
+import { Button } from "../components/ui/button";
+import { Switch } from "../components/ui/switch";
+
+const mockLlmsTxt = `# llms.txt\nThis is a mock llms.txt file for https://example.com\n- Title: Example\n- Description: Example site for LLMs.`;
+const mockLlmsFullTxt = `# llms-full.txt\nThis is a mock llms-full.txt file for https://example.com\n- Title: Example (Full)\n- Description: Example site for LLMs (Full).\n- Content: ...more details...`;
+
+// Placeholder functions for future backend integration
+function generateLlmsTxt(url: string): Promise<string> {
+  return new Promise((resolve) => setTimeout(() => resolve(mockLlmsTxt), 1200));
+}
+function generateLlmsFullTxt(url: string): Promise<string> {
+  return new Promise((resolve) => setTimeout(() => resolve(mockLlmsFullTxt), 1200));
+}
+
+// Helper to normalize URL
+function normalizeUrl(input: string): string {
+  if (!input) return "";
+  // If it already starts with http:// or https://, return as is
+  if (/^https?:\/\//i.test(input)) return input;
+  // Otherwise, prepend https://
+  return `https://${input}`;
+}
+
+// Steps for agent process
+const steps = [
+  "Looking for sitemap.xml",
+  "Generating sitemap.xml (if not found)",
+  "Generating documentation",
+  "Generating llms.txt",
+  "Generating llms-full.txt",
+];
 
 export default function Home() {
-  return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm/6 text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-[family-name:var(--font-geist-mono)] font-semibold">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+  const [url, setUrl] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [showFull, setShowFull] = useState(false);
+  const [output, setOutput] = useState<string>("");
+  const [currentStep, setCurrentStep] = useState<number | null>(null);
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+  const handleGenerate = async () => {
+    setLoading(true);
+    setOutput("");
+    setCurrentStep(0);
+    const normalized = normalizeUrl(url);
+    // Simulate step-by-step agent process
+    for (let i = 0; i < steps.length; i++) {
+      setCurrentStep(i);
+      // Simulate longer time for documentation and llms.txt steps
+      await new Promise((res) => setTimeout(res, i === 2 ? 1200 : 600));
+    }
+    if (showFull) {
+      setOutput(await generateLlmsFullTxt(normalized));
+    } else {
+      setOutput(await generateLlmsTxt(normalized));
+    }
+    setLoading(false);
+    setCurrentStep(null);
+  };
+
+  const handleToggle = async () => {
+    setShowFull((prev) => !prev);
+    setLoading(true);
+    setOutput("");
+    const normalized = normalizeUrl(url);
+    if (!showFull) {
+      setOutput(await generateLlmsFullTxt(normalized));
+    } else {
+      setOutput(await generateLlmsTxt(normalized));
+    }
+    setLoading(false);
+  };
+
+  return (
+    <main className="flex items-center justify-center min-h-screen bg-white text-black px-4">
+      <Card className="w-full max-w-xl p-8 shadow-lg border-black/10 bg-white flex flex-col items-center gap-6">
+        <header className="w-full text-center mb-2">
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight mb-1">
+            dot txt
+          </h1>
+          <p className="text-base sm:text-lg text-black/70 font-medium">
+            Generate AI-readable documentation files (llms.txt / llms-full.txt) for any website.
+          </p>
+        </header>
+        <form
+          className="w-full flex flex-col sm:flex-row gap-3 items-center"
+          onSubmit={(e) => {
+            e.preventDefault();
+            handleGenerate();
+          }}
+        >
+          <Input
+            type="text"
+            placeholder="Enter website URL (e.g. https://example.com)"
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            className="flex-1 min-w-0 border-black/20 bg-white text-black placeholder:text-black/40"
+            required
+            autoFocus
+          />
+          <Button
+            type="submit"
+            className="bg-black text-white hover:bg-black/80 font-semibold px-6 py-2"
+            disabled={loading || !url}
           >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+            {loading ? (
+              <span className="flex items-center gap-2">
+                <span className="animate-spin rounded-full h-4 w-4 border-2 border-t-black border-black/20" />
+                Generating...
+              </span>
+            ) : (
+              "Generate"
+            )}
+          </Button>
+        </form>
+        {/* Step indicator */}
+        {loading && currentStep !== null && (
+          <ol className="w-full flex flex-col gap-1 mb-2">
+            {steps.map((step, idx) => (
+              <li
+                key={step}
+                className={`flex items-center gap-2 text-sm font-mono transition-colors duration-200 ${
+                  idx < currentStep
+                    ? "text-black/30"
+                    : idx === currentStep
+                    ? "text-black font-bold"
+                    : "text-black/10"
+                }`}
+              >
+                <span
+                  className={`inline-block w-2 h-2 rounded-full border border-black/20 ${
+                    idx === currentStep
+                      ? "bg-black animate-pulse"
+                      : idx < currentStep
+                      ? "bg-black/20"
+                      : "bg-black/5"
+                  }`}
+                />
+                {step}
+              </li>
+            ))}
+          </ol>
+        )}
+        <div className="w-full flex items-center justify-end gap-2 mt-2">
+          <span className="text-sm font-mono text-black/60">llms.txt</span>
+          <Switch checked={showFull} onCheckedChange={handleToggle} />
+          <span className="text-sm font-mono text-black/60">llms-full.txt</span>
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
-    </div>
+        <textarea
+          className="w-full min-h-[180px] max-h-96 p-3 border border-black/10 rounded bg-black/5 text-black font-mono text-sm resize-y focus:outline-none focus:ring-2 focus:ring-black/20"
+          value={output}
+          readOnly
+          placeholder={
+            loading
+              ? "Generating..."
+              : showFull
+              ? "llms-full.txt output will appear here."
+              : "llms.txt output will appear here."
+          }
+        />
+      </Card>
+    </main>
   );
 }
