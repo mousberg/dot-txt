@@ -63,8 +63,8 @@ export default function Home() {
   };
 
   const handleToggle = async () => {
-    setShowFull((prev) => !prev);
     if (!url) return;
+    setShowFull((prev) => !prev);
     setLoading(true);
     setOutput("");
     const normalized = normalizeUrl(url);
