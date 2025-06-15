@@ -5,18 +5,14 @@ import { Card } from "../components/ui/card";
 import { Input } from "../components/ui/input";
 import { Button } from "../components/ui/button";
 import { Switch } from "../components/ui/switch";
+import { toast } from "sonner";
+import { Copy } from "lucide-react";
 
-const mockLlmsTxt = `# llms.txt\nThis is a mock llms.txt file for https://example.com\n- Title: Example\n- Description: Example site for LLMs.`;
-const mockLlmsFullTxt = `# llms-full.txt\nThis is a mock llms-full.txt file for https://example.com\n- Title: Example (Full)\n- Description: Example site for LLMs (Full).\n- Content: ...more details...`;
-
-// Placeholder functions for future backend integration
-function generateLlmsTxt(url: string): Promise<string> {
-  void url;
-  return new Promise((resolve) => setTimeout(() => resolve(mockLlmsTxt), 1200));
-}
-function generateLlmsFullTxt(url: string): Promise<string> {
-  void url;
-  return new Promise((resolve) => setTimeout(() => resolve(mockLlmsFullTxt), 1200));
+interface CrawlProgress {
+  status: 'crawling' | 'processing' | 'enhancing' | 'complete' | 'error';
+  message: string;
+  current?: number;
+  total?: number;
 }
 
 // Helper to normalize URL
@@ -43,99 +39,143 @@ export default function Home() {
   const [showFull, setShowFull] = useState(false);
   const [output, setOutput] = useState<string>("");
   const [currentStep, setCurrentStep] = useState<number | null>(null);
+  const [progress, setProgress] = useState<CrawlProgress | null>(null);
+  const [crawlResult, setCrawlResult] = useState<{ content: string; metadata?: { pagesScraped: number; totalPages: number; fullVersion: boolean } } | null>(null);
 
   const handleGenerate = async () => {
     if (!url) return;
     setLoading(true);
     setOutput("");
-    setCurrentStep(0);
+    setCurrentStep(null);
+    setProgress(null);
+    setCrawlResult(null);
+    
     const normalized = normalizeUrl(url);
-    // Simulate step-by-step agent process
-    for (let i = 0; i < steps.length; i++) {
-      setCurrentStep(i);
-      // Simulate longer time for documentation and llms.txt steps
-      await new Promise((res) => setTimeout(res, i === 2 ? 1200 : 600));
-    }
+    
     try {
-      // Step 1: POST to Hugging Face API
-      const postRes = await fetch("https://stevenbucaille-dot-txt.hf.space/gradio_api/call/predict", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ data: [normalized] }),
+      // Try our enhanced API first
+      const response = await fetch('/api/crawl', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: normalized, fullVersion: showFull }),
       });
-      const postData = await postRes.json();
-      // The event ID is usually in postData.event_id or similar; fallback to first string value
-      const eventId = postData.event_id || (typeof postData === "object" && Object.values(postData).find(v => typeof v === "string"));
-      if (!eventId) throw new Error("No event ID returned from API");
-      // Step 2: GET the result
-      const getRes = await fetch(`https://stevenbucaille-dot-txt.hf.space/gradio_api/call/predict/${eventId}`);
-      const contentType = getRes.headers.get("content-type") || "";
-      if (contentType.includes("text/event-stream")) {
-        const reader = getRes.body?.getReader();
-        let result = "";
-        if (reader) {
-          const decoder = new TextDecoder();
-          let done = false;
-          while (!done) {
-            const { value, done: doneReading } = await reader.read();
-            if (value) {
-              result += decoder.decode(value, { stream: !doneReading });
+
+      if (response.ok) {
+        const reader = response.body?.getReader();
+        if (!reader) throw new Error('No response body');
+
+        const decoder = new TextDecoder();
+        let done = false;
+
+        while (!done) {
+          const { value, done: doneReading } = await reader.read();
+          done = doneReading;
+
+          if (value) {
+            const text = decoder.decode(value);
+            const lines = text.split('\n').filter(line => line.trim());
+            
+            for (const line of lines) {
+              try {
+                const data = JSON.parse(line);
+                
+                if (data.status === 'complete' && data.result) {
+                  setCrawlResult(data.result);
+                  setOutput(data.result.content);
+                  setProgress(null);
+                  toast.success('Successfully generated ' + (showFull ? 'llms-full.txt' : 'llms.txt'));
+                } else if (data.status === 'error') {
+                  throw new Error(data.error || 'Unknown error');
+                } else {
+                  // Update progress
+                  setProgress(data as CrawlProgress);
+                }
+              } catch (e) {
+                console.error('Failed to parse:', line, e);
+              }
             }
-            done = doneReading;
           }
-          // Extract only the data lines from the SSE stream
-          const lines = result.split('\n');
-          const dataLines = lines
-            .filter(line => line.startsWith('data: '))
-            .map(line => line.replace('data: ', '').trim())
-            .filter(line => line && line !== 'null'); // Remove empty and 'null' lines
-
-          let outputText = dataLines.join('\n');
-
-          // Try to parse as JSON if it looks like an array or string
-          try {
-            const parsed = JSON.parse(outputText);
-            if (Array.isArray(parsed)) {
-              outputText = parsed.join('\n');
-            } else if (typeof parsed === 'string') {
-              outputText = parsed;
-            }
-          } catch {
-            // Not JSON, leave as is
-          }
-
-          setOutput(outputText || result);
-        } else {
-          setOutput("Error: Could not read event stream.");
         }
       } else {
-        // fallback to JSON or text
-        const getData = await getRes.json().catch(() => getRes.text());
-        setOutput(typeof getData === "string" ? getData : JSON.stringify(getData));
+        // Fallback to original API
+        throw new Error('Using fallback API');
       }
-    } catch (err) {
-      if (err instanceof Error) {
-        setOutput("Error: " + err.message);
-      } else {
-        setOutput("Error: Failed to fetch result from API.");
+    } catch {
+      // Fallback to original Hugging Face API
+      try {
+        // Simulate step-by-step agent process
+        for (let i = 0; i < steps.length; i++) {
+          setCurrentStep(i);
+          await new Promise((res) => setTimeout(res, i === 2 ? 1200 : 600));
+        }
+        
+        const postRes = await fetch("https://stevenbucaille-dot-txt.hf.space/gradio_api/call/predict", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ data: [normalized] }),
+        });
+        const postData = await postRes.json();
+        const eventId = postData.event_id || (typeof postData === "object" && Object.values(postData).find(v => typeof v === "string"));
+        if (!eventId) throw new Error("No event ID returned from API");
+        
+        const getRes = await fetch(`https://stevenbucaille-dot-txt.hf.space/gradio_api/call/predict/${eventId}`);
+        const contentType = getRes.headers.get("content-type") || "";
+        if (contentType.includes("text/event-stream")) {
+          const reader = getRes.body?.getReader();
+          let result = "";
+          if (reader) {
+            const decoder = new TextDecoder();
+            let done = false;
+            while (!done) {
+              const { value, done: doneReading } = await reader.read();
+              if (value) {
+                result += decoder.decode(value, { stream: !doneReading });
+              }
+              done = doneReading;
+            }
+            const lines = result.split('\n');
+            const dataLines = lines
+              .filter(line => line.startsWith('data: '))
+              .map(line => line.replace('data: ', '').trim())
+              .filter(line => line && line !== 'null');
+
+            let outputText = dataLines.join('\n');
+
+            try {
+              const parsed = JSON.parse(outputText);
+              if (Array.isArray(parsed)) {
+                outputText = parsed.join('\n');
+              } else if (typeof parsed === 'string') {
+                outputText = parsed;
+              }
+            } catch {
+              // Not JSON, leave as is
+            }
+
+            setOutput(outputText || result);
+          } else {
+            setOutput("Error: Could not read event stream.");
+          }
+        } else {
+          const getData = await getRes.json().catch(() => getRes.text());
+          setOutput(typeof getData === "string" ? getData : JSON.stringify(getData));
+        }
+      } catch (fallbackErr) {
+        const message = fallbackErr instanceof Error ? fallbackErr.message : 'Failed to generate';
+        setOutput('Error: ' + message);
+        toast.error(message);
       }
+    } finally {
+      setLoading(false);
+      setCurrentStep(null);
     }
-    setLoading(false);
-    setCurrentStep(null);
   };
 
-  const handleToggle = async () => {
-    if (!url) return;
-    setShowFull((prev) => !prev);
-    setLoading(true);
-    setOutput("");
-    const normalized = normalizeUrl(url);
-    if (!showFull) {
-      setOutput(await generateLlmsFullTxt(normalized));
-    } else {
-      setOutput(await generateLlmsTxt(normalized));
+  const handleCopy = () => {
+    if (output) {
+      navigator.clipboard.writeText(output);
+      toast.success('Copied to clipboard!');
     }
-    setLoading(false);
   };
 
   return (
@@ -180,8 +220,36 @@ export default function Home() {
             )}
           </Button>
         </form>
-        {/* Step indicator */}
-        {loading && currentStep !== null && (
+        {/* Progress indicator */}
+        {loading && progress && (
+          <div className="w-full bg-black/5 rounded-lg p-4 mb-2">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm font-semibold">
+                {progress.status === 'crawling' && '🔍 Crawling website...'}
+                {progress.status === 'processing' && '📄 Processing content...'}
+                {progress.status === 'enhancing' && '✨ Enhancing with AI...'}
+                {progress.status === 'complete' && '✅ Complete!'}
+                {progress.status === 'error' && '❌ Error occurred'}
+              </span>
+              {progress.current && progress.total && (
+                <span className="text-xs text-black/60">
+                  {progress.current} / {progress.total}
+                </span>
+              )}
+            </div>
+            <p className="text-sm text-black/70 font-mono">{progress.message}</p>
+            {progress.current && progress.total && (
+              <div className="w-full bg-black/10 rounded-full h-2 mt-2">
+                <div
+                  className="bg-black h-2 rounded-full transition-all duration-300"
+                  style={{ width: `${(progress.current / progress.total) * 100}%` }}
+                />
+              </div>
+            )}
+          </div>
+        )}
+        {/* Fallback step indicator for HuggingFace API */}
+        {loading && currentStep !== null && !progress && (
           <ol className="w-full flex flex-col gap-1 mb-2">
             {steps.map((step, idx) => (
               <li
@@ -210,21 +278,39 @@ export default function Home() {
         )}
         <div className="w-full flex items-center justify-end gap-2 mt-2">
           <span className="text-sm font-mono text-black/60">llms.txt</span>
-          <Switch checked={showFull} onCheckedChange={handleToggle} />
+          <Switch checked={showFull} onCheckedChange={() => setShowFull(!showFull)} />
           <span className="text-sm font-mono text-black/60">llms-full.txt</span>
         </div>
-        <textarea
-          className="w-full min-h-[180px] max-h-96 p-3 border border-black/10 rounded bg-black/5 text-black font-mono text-sm resize-y focus:outline-none focus:ring-2 focus:ring-black/20"
-          value={output}
-          readOnly
-          placeholder={
-            loading
-              ? "Generating..."
-              : showFull
-              ? "llms-full.txt output will appear here."
-              : "llms.txt output will appear here."
-          }
-        />
+        <div className="w-full relative">
+          <textarea
+            className="w-full min-h-[180px] max-h-96 p-3 border border-black/10 rounded bg-black/5 text-black font-mono text-sm resize-y focus:outline-none focus:ring-2 focus:ring-black/20"
+            value={output}
+            readOnly
+            placeholder={
+              loading
+                ? "Generating..."
+                : showFull
+                ? "llms-full.txt output will appear here."
+                : "llms.txt output will appear here."
+            }
+          />
+          {output && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="absolute top-2 right-2 h-8 px-2"
+              onClick={handleCopy}
+            >
+              <Copy className="h-4 w-4 mr-1" />
+              Copy
+            </Button>
+          )}
+        </div>
+        {crawlResult?.metadata && (
+          <div className="w-full text-xs text-black/50 font-mono">
+            Crawled {crawlResult.metadata.pagesScraped} of {crawlResult.metadata.totalPages} pages
+          </div>
+        )}
       </Card>
     </main>
   );
