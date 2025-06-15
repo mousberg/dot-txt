@@ -45,6 +45,7 @@ export default function Home() {
   const [currentStep, setCurrentStep] = useState<number | null>(null);
 
   const handleGenerate = async () => {
+    if (!url) return;
     setLoading(true);
     setOutput("");
     setCurrentStep(0);
@@ -55,10 +56,65 @@ export default function Home() {
       // Simulate longer time for documentation and llms.txt steps
       await new Promise((res) => setTimeout(res, i === 2 ? 1200 : 600));
     }
-    if (showFull) {
-      setOutput(await generateLlmsFullTxt(normalized));
-    } else {
-      setOutput(await generateLlmsTxt(normalized));
+    try {
+      // Step 1: POST to Hugging Face API
+      const postRes = await fetch("https://stevenbucaille-dot-txt.hf.space/gradio_api/call/predict", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ data: [normalized] }),
+      });
+      const postData = await postRes.json();
+      // The event ID is usually in postData.event_id or similar; fallback to first string value
+      const eventId = postData.event_id || (typeof postData === "object" && Object.values(postData).find(v => typeof v === "string"));
+      if (!eventId) throw new Error("No event ID returned from API");
+      // Step 2: GET the result
+      const getRes = await fetch(`https://stevenbucaille-dot-txt.hf.space/gradio_api/call/predict/${eventId}`);
+      const contentType = getRes.headers.get("content-type") || "";
+      if (contentType.includes("text/event-stream")) {
+        const reader = getRes.body?.getReader();
+        let result = "";
+        if (reader) {
+          const decoder = new TextDecoder();
+          let done = false;
+          while (!done) {
+            const { value, done: doneReading } = await reader.read();
+            if (value) {
+              result += decoder.decode(value, { stream: !doneReading });
+            }
+            done = doneReading;
+          }
+          // Extract only the data lines from the SSE stream
+          const lines = result.split('\n');
+          const dataLines = lines
+            .filter(line => line.startsWith('data: '))
+            .map(line => line.replace('data: ', '').trim())
+            .filter(line => line && line !== 'null'); // Remove empty and 'null' lines
+
+          let outputText = dataLines.join('\n');
+
+          // Try to parse as JSON if it looks like an array or string
+          try {
+            const parsed = JSON.parse(outputText);
+            if (Array.isArray(parsed)) {
+              outputText = parsed.join('\n');
+            } else if (typeof parsed === 'string') {
+              outputText = parsed;
+            }
+          } catch {
+            // Not JSON, leave as is
+          }
+
+          setOutput(outputText || result);
+        } else {
+          setOutput("Error: Could not read event stream.");
+        }
+      } else {
+        // fallback to JSON or text
+        const getData = await getRes.json().catch(() => getRes.text());
+        setOutput(typeof getData === "string" ? getData : JSON.stringify(getData));
+      }
+    } catch (err: any) {
+      setOutput("Error: " + (err?.message || "Failed to fetch result from API."));
     }
     setLoading(false);
     setCurrentStep(null);
