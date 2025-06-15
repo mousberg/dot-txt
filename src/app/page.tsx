@@ -11,9 +11,11 @@ const mockLlmsFullTxt = `# llms-full.txt\nThis is a mock llms-full.txt file for 
 
 // Placeholder functions for future backend integration
 function generateLlmsTxt(url: string): Promise<string> {
+  void url;
   return new Promise((resolve) => setTimeout(() => resolve(mockLlmsTxt), 1200));
 }
 function generateLlmsFullTxt(url: string): Promise<string> {
+  void url;
   return new Promise((resolve) => setTimeout(() => resolve(mockLlmsFullTxt), 1200));
 }
 
