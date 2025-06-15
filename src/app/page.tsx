@@ -113,8 +113,12 @@ export default function Home() {
         const getData = await getRes.json().catch(() => getRes.text());
         setOutput(typeof getData === "string" ? getData : JSON.stringify(getData));
       }
-    } catch (err: any) {
-      setOutput("Error: " + (err?.message || "Failed to fetch result from API."));
+    } catch (err) {
+      if (err instanceof Error) {
+        setOutput("Error: " + err.message);
+      } else {
+        setOutput("Error: Failed to fetch result from API.");
+      }
     }
     setLoading(false);
     setCurrentStep(null);
